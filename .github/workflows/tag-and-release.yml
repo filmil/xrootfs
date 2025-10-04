@@ -15,7 +15,7 @@ env:
   ZIP_PACKAGE: "//cmd/xrootfs"
   # The name of the binary to package. This workflow packages a single binary
   # into a zip file.
-  BINARY_NAME: "bazel-bin/cmd/cmd/xrootfs"
+  BINARY_NAME: "bazel-bin/cmd/xrootfs/xrootfs"
 
 on:
   schedule:
