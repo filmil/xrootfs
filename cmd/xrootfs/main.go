@@ -35,7 +35,7 @@ type OCIManifest struct {
 }
 
 // Extract tarball to dest, preserving metadata
-func extractTar(tarPath, dest string) error {
+func extractTar(linkFixup, tarPath, dest string) error {
 	f, err := os.Open(tarPath)
 	if err != nil {
 		return fmt.Errorf("while opening tar file: %q: %w", tarPath, err)
@@ -78,7 +78,12 @@ func extractTar(tarPath, dest string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return err
 			}
-			os.Symlink(hdr.Linkname, target)
+			linkname := hdr.Linkname
+			if strings.HasPrefix(linkname, "/") {
+				// add rootfs
+				linkname = filepath.Join(linkFixup, linkname)
+			}
+			os.Symlink(linkname, target)
 		case tar.TypeLink: // hard link
 			os.Link(filepath.Join(dest, hdr.Linkname), target)
 		case tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
@@ -136,7 +141,7 @@ func applyWhiteouts(layerTmp, rootfs string) error {
 }
 
 // Copy layerTmp into rootfs, preserving metadata
-func copyLayer(layerTmp, rootfs string) error {
+func copyLayer(linkFixup, layerTmp, rootfs string) error {
 	return filepath.Walk(layerTmp, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -162,6 +167,9 @@ func copyLayer(layerTmp, rootfs string) error {
 		if info.Mode()&os.ModeSymlink != 0 {
 			target, _ := os.Readlink(path)
 			os.RemoveAll(dst)
+			if strings.HasPrefix(target, "/") {
+				target = filepath.Join(linkFixup, target)
+			}
 			return os.Symlink(target, dst)
 		}
 
@@ -193,33 +201,33 @@ func copyLayer(layerTmp, rootfs string) error {
 	})
 }
 
-func processLayers(layers []string, baseDir, rootfs string) error {
+func processLayers(linkFixup string, layers []string, baseDir, rootfs string) error {
 	for _, layer := range layers {
 		layerPath := filepath.Join(baseDir, layer)
 		layerTmp, _ := os.MkdirTemp("", "layer")
 		defer os.RemoveAll(layerTmp)
 
-		if err := extractTar(layerPath, layerTmp); err != nil {
+		if err := extractTar(linkFixup, layerPath, layerTmp); err != nil {
 			return fmt.Errorf("while extracting layer: %q: %w", layerPath, err)
 		}
 		if err := applyWhiteouts(layerTmp, rootfs); err != nil {
 			return fmt.Errorf("while applying whiteouts: %q: %w", layerPath, err)
 		}
-		if err := copyLayer(layerTmp, rootfs); err != nil {
+		if err := copyLayer(linkFixup, layerTmp, rootfs); err != nil {
 			return fmt.Errorf("while copying layer: %q: %w", layerPath, err)
 		}
 	}
 	return nil
 }
 
-func run(imageTar, rootfs string) error {
+func run(linkFixup, imageTar, rootfs string) error {
 	tmp, err := os.MkdirTemp("", "img")
 	if err != nil {
 		return fmt.Errorf("while creating temp directory: %w", err)
 	}
 	defer os.RemoveAll(tmp)
 
-	if err := extractTar(imageTar, tmp); err != nil {
+	if err := extractTar(linkFixup, imageTar, tmp); err != nil {
 		return fmt.Errorf("extractTar: %w", err)
 	}
 
@@ -233,7 +241,7 @@ func run(imageTar, rootfs string) error {
 		if err := os.MkdirAll(rootfs, 0755); err != nil {
 			return fmt.Errorf("MkdirAll: %w", err)
 		}
-		processLayers(layers, tmp, rootfs)
+		processLayers(linkFixup, layers, tmp, rootfs)
 		return nil
 	}
 
@@ -269,7 +277,7 @@ func run(imageTar, rootfs string) error {
 		if err := os.MkdirAll(rootfs, 0755); err != nil {
 			return fmt.Errorf("while creating dir for: %q: %w", rootfs, err)
 		}
-		processLayers(layers, tmp, rootfs)
+		processLayers(linkFixup, layers, tmp, rootfs)
 		return nil
 	}
 
@@ -281,10 +289,12 @@ func main() {
 	log.SetPrefix(fmt.Sprintf("%v:\n\t", prgname))
 	var (
 		imageTar, rootfs, marker string
+		fixLinks                 bool
 	)
 	flag.StringVar(&imageTar, "image-tar", "", "The TAR archive of an OCI image file")
 	flag.StringVar(&rootfs, "rootfs-dir", "", "The name of the directory to put the extracted rootfs in")
 	flag.StringVar(&marker, "marker", "", "The name of a marker file to create in rootfs - skipped if empty")
+	flag.BoolVar(&fixLinks, "fix-links", true, "Whether to fix dangling links or not")
 	flag.Parse()
 
 	if imageTar == "" {
@@ -296,7 +306,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(imageTar, rootfs); err != nil {
+	linkFixup := rootfs
+	if !fixLinks {
+		linkFixup = ""
+	}
+
+	if err := run(linkFixup, imageTar, rootfs); err != nil {
 		log.Printf("error while processing %q into %q: %v", imageTar, rootfs, err)
 		os.Exit(1)
 	}
