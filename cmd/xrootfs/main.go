@@ -34,6 +34,29 @@ type OCIManifest struct {
 	} `json:"layers"`
 }
 
+// target is absolute name where layer goes.
+// linkname is relative to target's dir.
+func Rel(linkFixup, target, linkName string) (string, error) {
+	targetDirname := filepath.Dir(target)
+	var linkAbsname string
+	if !strings.HasPrefix(linkName, "/") {
+		// Relative link is relative to the dirname of target.
+		linkAbsname = filepath.Join(targetDirname, linkName)
+	} else {
+		// Absolute link is made to be relative to the link fixup directory.
+		linkAbsname = filepath.Join(linkFixup, linkName)
+	}
+	// For relative link.
+	relified, err := filepath.Rel(targetDirname, linkAbsname)
+	if err != nil {
+		return "", fmt.Errorf("can not relify: target: %q, linkName: %q, linkAbsname: %q, targetDirname: %q\n\t%w",
+			target, linkName, linkAbsname, targetDirname, err)
+	}
+	log.Printf("target: %q,\n\ttargetDirname: %q,\n\tlinkName: %q,\n\tlinkAbsname: %q,\n\trelified: %q\n\tlinkFixup: %q",
+		target, targetDirname, linkName, linkAbsname, relified, linkFixup)
+	return relified, nil
+}
+
 // Extract tarball to dest, preserving metadata
 func extractTar(linkFixup, tarPath, dest string) error {
 	f, err := os.Open(tarPath)
@@ -71,19 +94,23 @@ func extractTar(linkFixup, tarPath, dest string) error {
 			}
 			if _, err := io.Copy(out, tr); err != nil {
 				out.Close()
-				return fmt.Errorf("while copying: %q: %q", tarPath, err)
+				return fmt.Errorf("while copying: %q:\n\t%w", tarPath, err)
 			}
 			out.Close()
 		case tar.TypeSymlink:
+			// When a symlink is extracted from the archive.
+			// target: the full path in the current filesystem to where the
+			// symlink will be created.
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return err
 			}
 			linkname := hdr.Linkname
-			if strings.HasPrefix(linkname, "/") {
-				// add rootfs
-				linkname = filepath.Join(linkFixup, linkname)
+			relified, err := Rel(dest, target, linkname)
+			if err != nil {
+				return fmt.Errorf("1: while relifying: target=%q,dst=%q\n\t%w", linkname, target, err)
 			}
-			os.Symlink(linkname, target)
+			//log.Printf("XXX:\n\ttarget:\n\t%q,\n\tlinkname: %q,\n\ttarPath: %q,\n\trelified: %q", target, linkname, tarPath, relified)
+			os.Symlink(relified, target)
 		case tar.TypeLink: // hard link
 			os.Link(filepath.Join(dest, hdr.Linkname), target)
 		case tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
@@ -144,7 +171,7 @@ func applyWhiteouts(layerTmp, rootfs string) error {
 func copyLayer(linkFixup, layerTmp, rootfs string) error {
 	return filepath.Walk(layerTmp, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("in filepath.Walk: path: %q: %w", path, err)
 		}
 		rel, _ := filepath.Rel(layerTmp, path)
 		if rel == "." {
@@ -155,22 +182,29 @@ func copyLayer(linkFixup, layerTmp, rootfs string) error {
 		// handle dirs
 		if info.IsDir() {
 			if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
-				return err
+				return fmt.Errorf("in filepath.Walk: can not make: %q: %w", dst, err)
 			}
 			if st, ok := info.Sys().(*syscall.Stat_t); ok {
-				_ = os.Lchown(dst, int(st.Uid), int(st.Gid))
+				err = os.Lchown(dst, int(st.Uid), int(st.Gid))
+				if err != nil {
+					return fmt.Errorf("in filepath.Walk: can not chown: %q: %w", dst, err)
+				}
 			}
 			return nil
 		}
 
 		// symlinks
+		// how to copy a symlink.
 		if info.Mode()&os.ModeSymlink != 0 {
 			target, _ := os.Readlink(path)
 			os.RemoveAll(dst)
-			if strings.HasPrefix(target, "/") {
-				target = filepath.Join(linkFixup, target)
+			relified, err := Rel(linkFixup, dst, target)
+			if err != nil {
+				return fmt.Errorf("2: while relifying: target=%q,dst=%q,path=%q\n\t%w",
+					target, dst, path, err)
 			}
-			return os.Symlink(target, dst)
+			//log.Printf("YYY: path: %q, target: %q, relified: %q, dst: %q", path, target, relified, dst)
+			return os.Symlink(relified, dst)
 		}
 
 		// regular files
@@ -208,13 +242,13 @@ func processLayers(linkFixup string, layers []string, baseDir, rootfs string) er
 		defer os.RemoveAll(layerTmp)
 
 		if err := extractTar(linkFixup, layerPath, layerTmp); err != nil {
-			return fmt.Errorf("while extracting layer: %q: %w", layerPath, err)
+			return fmt.Errorf("while extracting layer: %q:\n\t%w", layerPath, err)
 		}
 		if err := applyWhiteouts(layerTmp, rootfs); err != nil {
-			return fmt.Errorf("while applying whiteouts: %q: %w", layerPath, err)
+			return fmt.Errorf("while applying whiteouts: %q:\n\t%w", layerPath, err)
 		}
 		if err := copyLayer(linkFixup, layerTmp, rootfs); err != nil {
-			return fmt.Errorf("while copying layer: %q: %w", layerPath, err)
+			return fmt.Errorf("while copying layer: %q:\n\t%w", layerPath, err)
 		}
 	}
 	return nil
@@ -223,26 +257,25 @@ func processLayers(linkFixup string, layers []string, baseDir, rootfs string) er
 func run(linkFixup, imageTar, rootfs string) error {
 	tmp, err := os.MkdirTemp("", "img")
 	if err != nil {
-		return fmt.Errorf("while creating temp directory: %w", err)
+		return fmt.Errorf("while creating temp directory:\n\t%w", err)
 	}
 	defer os.RemoveAll(tmp)
 
 	if err := extractTar(linkFixup, imageTar, tmp); err != nil {
-		return fmt.Errorf("extractTar: %w", err)
+		return fmt.Errorf("extractTar:\n\t%w", err)
 	}
 
 	// Docker save?
 	if data, err := os.ReadFile(filepath.Join(tmp, "manifest.json")); err == nil {
 		var manifest DockerManifest
 		if err := json.Unmarshal(data, &manifest); err != nil {
-			return fmt.Errorf("json.Unmarshal: %w", err)
+			return fmt.Errorf("json.Unmarshal:\n\t%w", err)
 		}
 		layers := manifest[0].Layers
 		if err := os.MkdirAll(rootfs, 0755); err != nil {
 			return fmt.Errorf("MkdirAll: %w", err)
 		}
-		processLayers(linkFixup, layers, tmp, rootfs)
-		return nil
+		return processLayers(linkFixup, layers, tmp, rootfs)
 	}
 
 	// OCI archive?
@@ -263,11 +296,11 @@ func run(linkFixup, imageTar, rootfs string) error {
 		manifestPath := filepath.Join(tmp, "blobs", "sha256", sha)
 		manifestData, err := os.ReadFile(manifestPath)
 		if err != nil {
-			return fmt.Errorf("while reading manifest: %q: %w", manifestPath, err)
+			return fmt.Errorf("while reading manifest: %q:\n\t%w", manifestPath, err)
 		}
 		var mf OCIManifest
 		if err := json.Unmarshal(manifestData, &mf); err != nil {
-			return fmt.Errorf("while unmarshalling manifest: %q: %w", manifestPath, err)
+			return fmt.Errorf("while unmarshalling manifest: %q:\n\t%w", manifestPath, err)
 		}
 		var layers []string
 		for _, l := range mf.Layers {
@@ -275,18 +308,17 @@ func run(linkFixup, imageTar, rootfs string) error {
 			layers = append(layers, filepath.Join("blobs", "sha256", sha))
 		}
 		if err := os.MkdirAll(rootfs, 0755); err != nil {
-			return fmt.Errorf("while creating dir for: %q: %w", rootfs, err)
+			return fmt.Errorf("while creating dir for: %q:\n\t%w", rootfs, err)
 		}
-		processLayers(linkFixup, layers, tmp, rootfs)
-		return nil
+		return processLayers(linkFixup, layers, tmp, rootfs)
 	}
 
 	return fmt.Errorf("unrecognized archive format (not Docker save or OCI archive)")
 }
 
 func main() {
-	prgname := os.Args[0]
-	log.SetPrefix(fmt.Sprintf("%v:\n\t", prgname))
+	prgname := filepath.Base(os.Args[0])
+	log.SetPrefix(fmt.Sprintf("%v: ", prgname))
 	var (
 		imageTar, rootfs, marker string
 		fixLinks                 bool
@@ -311,8 +343,17 @@ func main() {
 		linkFixup = ""
 	}
 
+	if !strings.HasPrefix(rootfs, "/") {
+		pwd, err := os.Getwd()
+		if err != nil {
+			log.Printf("could not get CWD: %v", err)
+			os.Exit(1)
+		}
+		rootfs = filepath.Join(pwd, rootfs)
+	}
+
 	if err := run(linkFixup, imageTar, rootfs); err != nil {
-		log.Printf("error while processing %q into %q: %v", imageTar, rootfs, err)
+		log.Printf("error while processing\n\t\t%q\n\tinto\n\t\t%q:\n\t%v", imageTar, rootfs, err)
 		os.Exit(1)
 	}
 
@@ -320,7 +361,7 @@ func main() {
 		markerPath := filepath.Join(rootfs, marker)
 		f, err := os.Create(markerPath)
 		if err != nil {
-			log.Printf("error while creating: %q: %v", markerPath, err)
+			log.Printf("error while creating: %q:\n\t%v", markerPath, err)
 			os.Exit(1)
 		}
 		defer f.Close()
