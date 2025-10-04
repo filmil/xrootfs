@@ -280,10 +280,11 @@ func main() {
 	prgname := os.Args[0]
 	log.SetPrefix(fmt.Sprintf("%v:\n\t", prgname))
 	var (
-		imageTar, rootfs string
+		imageTar, rootfs, marker string
 	)
 	flag.StringVar(&imageTar, "image-tar", "", "The TAR archive of an OCI image file")
 	flag.StringVar(&rootfs, "rootfs-dir", "", "The name of the directory to put the extracted rootfs in")
+	flag.StringVar(&marker, "marker", "", "The name of a marker file to create in rootfs - skipped if empty")
 	flag.Parse()
 
 	if imageTar == "" {
@@ -298,5 +299,15 @@ func main() {
 	if err := run(imageTar, rootfs); err != nil {
 		log.Printf("error while processing %q into %q: %v", imageTar, rootfs, err)
 		os.Exit(1)
+	}
+
+	if marker != "" {
+		markerPath := filepath.Join(rootfs, marker)
+		f, err := os.Create(markerPath)
+		if err != nil {
+			log.Printf("error while creating: %q: %v", markerPath, err)
+			os.Exit(1)
+		}
+		defer f.Close()
 	}
 }
