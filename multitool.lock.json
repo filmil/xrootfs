@@ -1,0 +1,15 @@
+{
+    "$schema": "https://raw.githubusercontent.com/theoremlp/rules_multitool/main/lockfile.schema.json",
+    "gotopt2": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/filmil/xrootfs/releases/download/v0.0.1/xrootfs-linux-amd64.zip",
+                "sha256": "",
+                "os": "linux",
+                "file": "xrootfs/xrootfs",
+                "cpu": "x86_64"
+            }
+        ]
+    }
+}
