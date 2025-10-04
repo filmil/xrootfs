@@ -48,7 +48,7 @@ func extractTar(tarPath, dest string) error {
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return fmt.Errorf("while reading tar file: %q: %w", tarPath, err)
+			break
 		}
 		if err != nil {
 			return err
