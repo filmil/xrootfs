@@ -1,3 +1,5 @@
+load("@buildifier_prebuilt//:rules.bzl", "buildifier")
+
 # LICENSE sha256: c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 load("@gazelle//:def.bzl", "gazelle")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
@@ -5,8 +7,6 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 # bazel run //:gazelle
 # gazelle:prefix github.com/filmil/xrootfs
 gazelle(name = "gazelle")
-
-load("@buildifier_prebuilt//:rules.bzl", "buildifier")
 
 # bazel run //:buildifier
 buildifier(
@@ -26,5 +26,5 @@ gazelle(
 
 sh_test(
     name = "test",
-    srcs = [ "test.sh" ],
+    srcs = ["test.sh"],
 )

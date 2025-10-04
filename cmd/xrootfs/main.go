@@ -1,11 +1,14 @@
+// This program extracts an OCI TAR file into a rootfs.
 package main
 
 import (
 	"archive/tar"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +38,7 @@ type OCIManifest struct {
 func extractTar(tarPath, dest string) error {
 	f, err := os.Open(tarPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("while opening tar file: %q: %w", tarPath, err)
 	}
 	defer f.Close()
 
@@ -45,7 +48,7 @@ func extractTar(tarPath, dest string) error {
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			break
+			return fmt.Errorf("while reading tar file: %q: %w", tarPath, err)
 		}
 		if err != nil {
 			return err
@@ -56,19 +59,19 @@ func extractTar(tarPath, dest string) error {
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, os.FileMode(hdr.Mode)); err != nil {
-				return err
+				return fmt.Errorf("while creating target: %q: %q: %w", target, tarPath, err)
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return err
+				return fmt.Errorf("while creating dir: %q: %q: %w", target, tarPath, err)
 			}
 			out, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.FileMode(hdr.Mode))
 			if err != nil {
-				return err
+				return fmt.Errorf("while opening dir: %q: %q: %w", target, tarPath, err)
 			}
 			if _, err := io.Copy(out, tr); err != nil {
 				out.Close()
-				return err
+				return fmt.Errorf("while copying: %q: %q", tarPath, err)
 			}
 			out.Close()
 		case tar.TypeSymlink:
@@ -107,7 +110,7 @@ func extractTar(tarPath, dest string) error {
 func applyWhiteouts(layerTmp, rootfs string) error {
 	return filepath.Walk(layerTmp, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("error while walking: %q: %w", path, err)
 		}
 		name := info.Name()
 		rel, _ := filepath.Rel(layerTmp, path)
@@ -190,90 +193,110 @@ func copyLayer(layerTmp, rootfs string) error {
 	})
 }
 
-func processLayers(layers []string, baseDir, rootfs string) {
+func processLayers(layers []string, baseDir, rootfs string) error {
 	for _, layer := range layers {
 		layerPath := filepath.Join(baseDir, layer)
 		layerTmp, _ := os.MkdirTemp("", "layer")
 		defer os.RemoveAll(layerTmp)
 
 		if err := extractTar(layerPath, layerTmp); err != nil {
-			panic(err)
+			return fmt.Errorf("while extracting layer: %q: %w", layerPath, err)
 		}
 		if err := applyWhiteouts(layerTmp, rootfs); err != nil {
-			panic(err)
+			return fmt.Errorf("while applying whiteouts: %q: %w", layerPath, err)
 		}
 		if err := copyLayer(layerTmp, rootfs); err != nil {
-			panic(err)
+			return fmt.Errorf("while copying layer: %q: %w", layerPath, err)
 		}
-		fmt.Println("Applied layer", layer)
 	}
+	return nil
 }
 
-func main() {
-	if len(os.Args) != 3 {
-		fmt.Fprintf(os.Stderr, "Usage: %s image.tar rootfs-dir\n", os.Args[0])
-		os.Exit(1)
-	}
-	imageTar := os.Args[1]
-	rootfs := os.Args[2]
-
+func run(imageTar, rootfs string) error {
 	tmp, err := os.MkdirTemp("", "img")
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("while creating temp directory: %w", err)
 	}
 	defer os.RemoveAll(tmp)
 
 	if err := extractTar(imageTar, tmp); err != nil {
-		panic(err)
+		return fmt.Errorf("extractTar: %w", err)
 	}
 
 	// Docker save?
 	if data, err := os.ReadFile(filepath.Join(tmp, "manifest.json")); err == nil {
 		var manifest DockerManifest
 		if err := json.Unmarshal(data, &manifest); err != nil {
-			panic(err)
+			return fmt.Errorf("json.Unmarshal: %w", err)
 		}
 		layers := manifest[0].Layers
-		os.MkdirAll(rootfs, 0755)
+		if err := os.MkdirAll(rootfs, 0755); err != nil {
+			return fmt.Errorf("MkdirAll: %w", err)
+		}
 		processLayers(layers, tmp, rootfs)
-		fmt.Println("Rootfs written to", rootfs)
-		return
+		return nil
 	}
 
 	// OCI archive?
 	if _, err := os.Stat(filepath.Join(tmp, "oci-layout")); err == nil {
 		idxData, err := os.ReadFile(filepath.Join(tmp, "index.json"))
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("while reading index: %w", err)
 		}
 		var idx OCIIndex
 		if err := json.Unmarshal(idxData, &idx); err != nil {
-			panic(err)
+			return fmt.Errorf("while unmarshalling index: %w", err)
 		}
 		if len(idx.Manifests) == 0 {
-			panic("no manifests in index.json")
+			return fmt.Errorf("no manifests in index.json (??)")
 		}
 		digest := idx.Manifests[0].Digest
 		sha := strings.TrimPrefix(digest, "sha256:")
 		manifestPath := filepath.Join(tmp, "blobs", "sha256", sha)
 		manifestData, err := os.ReadFile(manifestPath)
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("while reading manifest: %q: %w", manifestPath, err)
 		}
 		var mf OCIManifest
 		if err := json.Unmarshal(manifestData, &mf); err != nil {
-			panic(err)
+			return fmt.Errorf("while unmarshalling manifest: %q: %w", manifestPath, err)
 		}
 		var layers []string
 		for _, l := range mf.Layers {
 			sha := strings.TrimPrefix(l.Digest, "sha256:")
 			layers = append(layers, filepath.Join("blobs", "sha256", sha))
 		}
-		os.MkdirAll(rootfs, 0755)
+		if err := os.MkdirAll(rootfs, 0755); err != nil {
+			return fmt.Errorf("while creating dir for: %q: %w", rootfs, err)
+		}
 		processLayers(layers, tmp, rootfs)
-		fmt.Println("Rootfs written to", rootfs)
-		return
+		return nil
 	}
 
-	panic("unrecognized archive format (not Docker save or OCI archive)")
+	return fmt.Errorf("unrecognized archive format (not Docker save or OCI archive)")
+}
+
+func main() {
+	prgname := os.Args[0]
+	log.SetPrefix(fmt.Sprintf("%v", prgname))
+	var (
+		imageTar, rootfs string
+	)
+	flag.StringVar(&imageTar, "image-tar", "", "The TAR archive of an OCI image file")
+	flag.StringVar(&rootfs, "rootfs-dir", "", "The name of the directory to put the extracted rootfs in")
+	flag.Parse()
+
+	if imageTar == "" {
+		log.Printf("flag --image-tar=... is mandatory")
+		os.Exit(1)
+	}
+	if rootfs == "" {
+		log.Printf("flag --rootfs-dir=... is mandatory")
+		os.Exit(1)
+	}
+
+	if err := run(imageTar, rootfs); err != nil {
+		log.Printf("error while processing %q into %q: %v", imageTar, rootfs, err)
+		os.Exit(1)
+	}
 }
