@@ -52,8 +52,8 @@ func Rel(linkFixup, target, linkName string) (string, error) {
 		return "", fmt.Errorf("can not relify: target: %q, linkName: %q, linkAbsname: %q, targetDirname: %q\n\t%w",
 			target, linkName, linkAbsname, targetDirname, err)
 	}
-	log.Printf("target: %q,\n\ttargetDirname: %q,\n\tlinkName: %q,\n\tlinkAbsname: %q,\n\trelified: %q\n\tlinkFixup: %q",
-		target, targetDirname, linkName, linkAbsname, relified, linkFixup)
+	//log.Printf("target: %q,\n\ttargetDirname: %q,\n\tlinkName: %q,\n\tlinkAbsname: %q,\n\trelified: %q\n\tlinkFixup: %q",
+	//target, targetDirname, linkName, linkAbsname, relified, linkFixup)
 	return relified, nil
 }
 
@@ -316,17 +316,36 @@ func run(linkFixup, imageTar, rootfs string) error {
 	return fmt.Errorf("unrecognized archive format (not Docker save or OCI archive)")
 }
 
+type StringSeq struct {
+	values []string
+}
+
+// Set implements flag.Value.
+func (s *StringSeq) Set(value string) error {
+	s.values = append(s.values, value)
+	return nil
+}
+
+// String implements flag.Value.
+func (s *StringSeq) String() string {
+	return fmt.Sprintf("%s", strings.Join(s.values, ":"))
+}
+
+var _ flag.Value = (*StringSeq)(nil)
+
 func main() {
 	prgname := filepath.Base(os.Args[0])
 	log.SetPrefix(fmt.Sprintf("%v: ", prgname))
 	var (
 		imageTar, rootfs, marker string
 		fixLinks                 bool
+		rmFiles                  StringSeq
 	)
 	flag.StringVar(&imageTar, "image-tar", "", "The TAR archive of an OCI image file")
 	flag.StringVar(&rootfs, "rootfs-dir", "", "The name of the directory to put the extracted rootfs in")
 	flag.StringVar(&marker, "marker", "", "The name of a marker file to create in rootfs - skipped if empty")
 	flag.BoolVar(&fixLinks, "fix-links", true, "Whether to fix dangling links or not")
+	flag.Var(&rmFiles, "rm", "One entry for each file (relative to rootfs) to delete")
 	flag.Parse()
 
 	if imageTar == "" {
@@ -365,5 +384,13 @@ func main() {
 			os.Exit(1)
 		}
 		defer f.Close()
+	}
+
+	for _, file := range rmFiles.values {
+		absFile := filepath.Join(rootfs, file)
+		if err := os.Remove(absFile); err != nil {
+			log.Printf("could not remove: %q", absFile)
+			os.Exit(1)
+		}
 	}
 }
