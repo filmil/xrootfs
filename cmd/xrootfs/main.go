@@ -278,7 +278,7 @@ func run(imageTar, rootfs string) error {
 
 func main() {
 	prgname := os.Args[0]
-	log.SetPrefix(fmt.Sprintf("%v", prgname))
+	log.SetPrefix(fmt.Sprintf("%v:\n\t", prgname))
 	var (
 		imageTar, rootfs string
 	)

@@ -23,6 +23,6 @@ go_deps.from_file(go_mod = "//:go.mod")
 # multitool
 bazel_dep(name = "rules_multitool", version = "1.9.0")
 multitool = use_extension("@rules_multitool//multitool:extension.bzl", "multitool")
-multitool.hub(lockfile = "//:multitool.lock.json")
-use_repo(multitool, "multitool")
-
+multitool.hub(hub_name = "xrootfs_multitool", lockfile = "//:multitool.lock.json")
+use_repo(multitool, "xrootfs_multitool")
+register_toolchains("@xrootfs_multitool//toolchains:all")

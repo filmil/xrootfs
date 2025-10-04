@@ -1,6 +1,6 @@
 {
     "$schema": "https://raw.githubusercontent.com/theoremlp/rules_multitool/main/lockfile.schema.json",
-    "gotopt2": {
+    "xrootfs": {
         "binaries": [
             {
                 "kind": "archive",
