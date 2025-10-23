@@ -1,4 +1,10 @@
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//build:my_package_name.bzl", "name_part_from_command_line")
 
 package(default_visibility = ["//visibility:public"])
+
+name_part_from_command_line(
+    name = "name_part_from_command_line",
+    build_setting_default = "@set_me@",
+)
 

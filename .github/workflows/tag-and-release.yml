@@ -16,6 +16,8 @@ env:
   # The name of the binary to package. This workflow packages a single binary
   # into a zip file.
   BINARY_NAME: "bazel-bin/cmd/xrootfs/xrootfs"
+  ZIP_PACKAGE2: "//cmd/imagecfg"
+  BINARY_NAME2: "bazel-bin/cmd/imagecfg/imagecfg"
 
 on:
   schedule:
@@ -106,8 +108,8 @@ jobs:
         run: |
           bazel build \
             --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch}} \
-            --${ZIP_PACKAGE}:name_part_from_command_line=${{ matrix.os }}-${{ matrix.arch }} \
-            ${ZIP_PACKAGE}:zip
+            --//build:name_part_from_command_line=${{ matrix.os }}-${{ matrix.arch }} \
+            ${ZIP_PACKAGE}:zip ${ZIP_PACKAGE2}:zip
       - name: Find version tag
         id: tag_version
         uses: mathieudutour/github-tag-action@v6.2
@@ -121,7 +123,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           allowUpdates: true
-          artifacts: "${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}.zip"
+          artifacts: "${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}.zip, ${{ env.BINARY_NAME2}}-${{ matrix.os }}-${{ matrix.arch }}.zip"
           tag: ${{ steps.tag_version.outputs.previous_tag }}
 
   # This workflow waits for binary artifacts to be published.
