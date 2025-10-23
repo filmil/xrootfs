@@ -1,0 +1,46 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@rules_pkg//pkg:zip.bzl", "pkg_zip")
+
+go_library(
+    name = "imagecfg_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/filmil/xrootfs/cmd/imagecfg",
+    visibility = ["//visibility:private"],
+)
+
+go_binary(
+    name = "imagecfg",
+    embed = [":imagecfg_lib"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "tpl",
+    srcs = [
+        "image.yml.tpl",
+    ],
+)
+
+go_test(
+    name = "imagecfg_test",
+    srcs = ["main_test.go"],
+    embed = [":imagecfg_lib"],
+    args = [
+        "--template=$(location :tpl)",
+    ],
+    # Run from the test root, not the package's root.
+    rundir = ".",
+    data = [
+        ":tpl",
+    ],
+)
+
+pkg_zip(
+    name = "zip",
+    srcs = [
+        ":imagecfg",
+    ],
+    package_dir = "xrootfs",
+    package_file_name = "imagecfg-{name_part}.zip",
+    package_variables = "//build:name_part_from_command_line",
+)

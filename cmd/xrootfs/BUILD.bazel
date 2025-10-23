@@ -1,4 +1,3 @@
-load("//build:my_package_name.bzl", "name_part_from_command_line")
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
 load("@rules_pkg//pkg:zip.bzl", "pkg_zip")
 
@@ -15,11 +14,6 @@ go_binary(
     visibility = ["//visibility:public"],
 )
 
-name_part_from_command_line(
-    name = "name_part_from_command_line",
-    build_setting_default = "@set_me@",
-)
-
 pkg_zip(
     name = "zip",
     srcs = [
@@ -27,5 +21,5 @@ pkg_zip(
     ],
     package_dir = "xrootfs",
     package_file_name = "xrootfs-{name_part}.zip",
-    package_variables = ":name_part_from_command_line",
+    package_variables = "//build:name_part_from_command_line",
 )
