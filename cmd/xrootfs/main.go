@@ -340,6 +340,7 @@ func main() {
 		imageTar, rootfs, marker string
 		fixLinks                 bool
 		pruneEmpty               bool
+		pruneDangling            bool
 		rmFiles                  StringSeq
 	)
 	flag.StringVar(&imageTar, "image-tar", "", "The TAR archive of an OCI image file")
@@ -349,6 +350,8 @@ func main() {
 	flag.Var(&rmFiles, "rm", "One entry for each file (relative to rootfs) to delete")
 	flag.BoolVar(&pruneEmpty, "prune-empty-dirs", true,
 		"Whether to remove empty directories, which a Bazel cache would drop anyway")
+	flag.BoolVar(&pruneDangling, "prune-dangling-links", true,
+		"Whether to remove symlinks whose target does not exist in the rootfs")
 	flag.Parse()
 
 	if imageTar == "" {
@@ -397,6 +400,16 @@ func main() {
 		}
 	}
 
+	if pruneDangling {
+		pruned, err := pruneDanglingLinks(rootfs)
+		if err != nil {
+			log.Printf("while pruning dangling symlinks: %v", err)
+			os.Exit(1)
+		}
+		for _, p := range pruned {
+			log.Printf("pruned dangling symlink: %s -> %s", p.path, p.target)
+		}
+	}
 	if pruneEmpty {
 		pruned, err := pruneEmptyDirs(rootfs)
 		if err != nil {
@@ -406,5 +419,74 @@ func main() {
 		if len(pruned) > 0 {
 			log.Printf("pruned %d empty directories: %v", len(pruned), pruned)
 		}
+	}
+}
+
+// A symlink that was removed, for the report.
+type prunedLink struct {
+	path   string // relative to the rootfs
+	target string // the link's text, as it was
+}
+
+// pruneDanglingLinks removes every symlink under rootfs whose target does not
+// exist, and returns what it removed.
+//
+// A rootfs assembled from packages always has some: a package's symlink often
+// points into a package that was not installed. Nothing can use such a link,
+// and Bazel refuses a tree artifact that contains one, so every consumer was
+// enumerating them by hand -- one build failure per link discovered, since
+// the error names only the first.
+//
+// An absolute target is taken as relative to the rootfs, which is how it would
+// resolve once the rootfs is the root. A target outside the rootfs is
+// dangling by the same reasoning. Removing one link can leave another
+// dangling, so this repeats until a pass removes nothing.
+func pruneDanglingLinks(rootfs string) ([]prunedLink, error) {
+	var all []prunedLink
+	for {
+		var pass []prunedLink
+		err := filepath.Walk(rootfs, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.Mode()&os.ModeSymlink == 0 {
+				return nil
+			}
+			link, err := os.Readlink(path)
+			if err != nil {
+				return fmt.Errorf("readlink %q: %w", path, err)
+			}
+			var resolved string
+			if filepath.IsAbs(link) {
+				resolved = filepath.Join(rootfs, link)
+			} else {
+				resolved = filepath.Join(filepath.Dir(path), link)
+			}
+			resolved = filepath.Clean(resolved)
+			if resolved != rootfs && !strings.HasPrefix(resolved, rootfs+string(filepath.Separator)) {
+				pass = append(pass, prunedLink{rel(rootfs, path), link})
+				return nil
+			}
+			if _, err := os.Lstat(resolved); err != nil {
+				if os.IsNotExist(err) {
+					pass = append(pass, prunedLink{rel(rootfs, path), link})
+					return nil
+				}
+				return fmt.Errorf("lstat %q: %w", resolved, err)
+			}
+			return nil
+		})
+		if err != nil {
+			return all, err
+		}
+		if len(pass) == 0 {
+			return all, nil
+		}
+		for _, p := range pass {
+			if err := os.Remove(filepath.Join(rootfs, p.path)); err != nil {
+				return all, fmt.Errorf("remove %q: %w", p.path, err)
+			}
+		}
+		all = append(all, pass...)
 	}
 }
