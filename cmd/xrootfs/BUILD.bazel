@@ -3,7 +3,10 @@ load("@rules_pkg//pkg:zip.bzl", "pkg_zip")
 
 go_library(
     name = "xrootfs_lib",
-    srcs = ["main.go"],
+    srcs = [
+        "main.go",
+        "prune.go",
+    ],
     importpath = "github.com/filmil/xrootfs/cmd/xrootfs",
     visibility = ["//visibility:private"],
 )
