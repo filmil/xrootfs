@@ -339,6 +339,7 @@ func main() {
 	var (
 		imageTar, rootfs, marker string
 		fixLinks                 bool
+		pruneEmpty               bool
 		rmFiles                  StringSeq
 	)
 	flag.StringVar(&imageTar, "image-tar", "", "The TAR archive of an OCI image file")
@@ -346,6 +347,8 @@ func main() {
 	flag.StringVar(&marker, "marker", "", "The name of a marker file to create in rootfs - skipped if empty")
 	flag.BoolVar(&fixLinks, "fix-links", true, "Whether to fix dangling links or not")
 	flag.Var(&rmFiles, "rm", "One entry for each file (relative to rootfs) to delete")
+	flag.BoolVar(&pruneEmpty, "prune-empty-dirs", true,
+		"Whether to remove empty directories, which a Bazel cache would drop anyway")
 	flag.Parse()
 
 	if imageTar == "" {
@@ -391,6 +394,17 @@ func main() {
 		if err := os.Remove(absFile); err != nil {
 			log.Printf("could not remove: %q", absFile)
 			os.Exit(1)
+		}
+	}
+
+	if pruneEmpty {
+		pruned, err := pruneEmptyDirs(rootfs)
+		if err != nil {
+			log.Printf("while pruning empty directories: %v", err)
+			os.Exit(1)
+		}
+		if len(pruned) > 0 {
+			log.Printf("pruned %d empty directories: %v", len(pruned), pruned)
 		}
 	}
 }
