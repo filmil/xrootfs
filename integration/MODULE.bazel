@@ -1,0 +1,12 @@
+module(
+    name = "integration",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "rules_shell", version = "0.8.0")
+
+bazel_dep(name = "xrootfs", version = "0.0.0")
+local_path_override(
+    module_name = "xrootfs",
+    path = "../",
+)

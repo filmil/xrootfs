@@ -1,0 +1,29 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Exercises the two binaries this module publishes, the way a consumer would:
+# as tools, from a Bazel build that depends on the module.
+#
+# Both tests are hermetic. imagecfg only renders a template, and xrootfs is
+# given a Docker format archive that the test builds itself, so neither needs
+# a network or a container runtime.
+
+sh_test(
+    name = "imagecfg_test",
+    size = "small",
+    srcs = ["imagecfg_test.bash"],
+    args = ["$(rlocationpath @xrootfs//cmd/imagecfg)"],
+    data = [
+        "image.yml.tpl",
+        "@xrootfs//cmd/imagecfg",
+    ],
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)
+
+sh_test(
+    name = "xrootfs_test",
+    size = "small",
+    srcs = ["xrootfs_test.bash"],
+    args = ["$(rlocationpath @xrootfs//cmd/xrootfs)"],
+    data = ["@xrootfs//cmd/xrootfs"],
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)
