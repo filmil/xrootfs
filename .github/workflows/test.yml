@@ -26,4 +26,9 @@ jobs:
         run: "bazel build //..."
       - name: Test
         run: "bazel test --test_output=errors //..."
+      # BCR presubmit runs exactly this, from .bcr/presubmit.yml. Running it
+      # here too means a break shows up on the pull request rather than in a
+      # registry pull request that is already open.
+      - name: Integration test
+        run: "cd integration && bazel test --test_output=errors //..."
 
