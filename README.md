@@ -74,6 +74,25 @@ bazel build //cmd/xrootfs //cmd/imagecfg
 bazel test //...
 ```
 
+## Supported hosts
+
+`xrootfs` and `imagecfg` run on Linux and on macOS, on x86_64 and arm64.
+The prebuilt binaries attached to a release are Linux only; on macOS, build
+from source or depend on the Bazel module.
+
+On macOS, extract onto a case-sensitive volume.
+The default APFS volume ignores case, and a Linux root filesystem can hold
+two paths that differ only in case.
+The Linux kernel headers have `xt_CONNMARK.h` and `xt_connmark.h`, for
+example.
+On a case-insensitive volume the second file overwrites the first, and
+`xrootfs` reports no error.
+Create one in Disk Utility by adding an APFS volume with the format
+"APFS (Case-sensitive)".
+
+On both hosts, device nodes and file ownership are only set when `xrootfs`
+runs as root.
+
 ## Using `xrootfs`
 
 Give it an image archive and a directory to write:

@@ -30,12 +30,13 @@ jobs:
   # BCR presubmit runs exactly this, from .bcr/presubmit.yml. Running it here
   # too means a break shows up on the pull request rather than in a registry
   # pull request that is already open. The matrix mirrors the presubmit one,
-  # as far as GitHub runners allow.
+  # as far as GitHub runners allow: macos-15-intel is the x86_64 Mac,
+  # macos-latest the arm64 one.
   integration:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
+        os: [ubuntu-22.04, ubuntu-24.04, macos-15-intel, macos-latest]
         bazel: [8.x, 9.x]
     runs-on: ${{ matrix.os }}
     env:
