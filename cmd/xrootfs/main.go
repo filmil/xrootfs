@@ -228,7 +228,9 @@ func copyLayer(linkFixup, layerTmp, rootfs string) error {
 			out.Close()
 			if st, ok := info.Sys().(*syscall.Stat_t); ok {
 				_ = os.Lchown(dst, int(st.Uid), int(st.Gid))
-				_ = os.Chtimes(dst, time.Now(), time.Unix(int64(st.Mtim.Sec), int64(st.Mtim.Nsec)))
+				// info.ModTime and not st.Mtim: Stat_t names that field Mtim on
+				// Linux and Mtimespec on macOS.
+				_ = os.Chtimes(dst, time.Now(), info.ModTime())
 			}
 		}
 		return nil
