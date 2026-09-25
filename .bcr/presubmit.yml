@@ -1,8 +1,14 @@
+# The integration module runs on Bazel 8 and 9 alike, so both are tested. The
+# CI workflow in .github/workflows/test.yml runs the same matrix.
+#
+# Linux only. xrootfs unpacks a Linux root filesystem, and cmd/xrootfs uses
+# Linux system calls (syscall.Mknod, syscall.Stat_t) that do not compile for
+# macOS or Windows.
 bcr_test_module:
   module_path: "integration"
   matrix:
-    platform: ["ubuntu2204"]
-    bazel: [8.x]
+    platform: ["debian13", "ubuntu2204", "ubuntu2404"]
+    bazel: [8.x, 9.x]
   tasks:
     run_tests:
       name: "Run test module"
