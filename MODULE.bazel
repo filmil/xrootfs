@@ -4,11 +4,16 @@ module(
     version = "0.0.0",
 )
 
+# A consumer builds //cmd/xrootfs and //cmd/imagecfg, which load rules_go,
+# rules_pkg and, through //build, rules_shell.
 bazel_dep(name = "rules_go", version = "0.61.1")
-bazel_dep(name = "gazelle", version = "0.51.3")
-bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.2")
 bazel_dep(name = "rules_pkg", version = "1.2.0")
 bazel_dep(name = "rules_shell", version = "0.8.0")
+
+# Only the developer targets in //:BUILD.bazel use these: bazel run //:gazelle
+# and bazel run //:buildifier.
+bazel_dep(name = "gazelle", version = "0.51.3", dev_dependency = True)
+bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.2", dev_dependency = True)
 
 # Go SDK
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
@@ -16,7 +21,10 @@ go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
 # Download an SDK for the host OS & architecture as well as common remote execution platforms.
 go_sdk.download(version = "1.25.0")
 
-go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
+# go.mod requires no modules, so no Go dependency reaches a consumer. A
+# require added to go.mod needs gazelle and this extension as regular
+# dependencies again, along with a use_repo for the new repository.
+go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps", dev_dependency = True)
 go_deps.from_file(go_mod = "//:go.mod")
 
 # multitool
