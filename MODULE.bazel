@@ -19,7 +19,7 @@ bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.2", dev_dependency = Tr
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
 
 # Download an SDK for the host OS & architecture as well as common remote execution platforms.
-go_sdk.download(version = "1.25.0")
+go_sdk.download(version = "1.26.10")
 
 # go.mod requires no modules, so no Go dependency reaches a consumer. A
 # require added to go.mod needs gazelle and this extension as regular
